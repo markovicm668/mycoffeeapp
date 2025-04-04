@@ -1252,11 +1252,6 @@ app.get('/api/store/dashboard', auth, async (req, res) => {
 
       // 1. Sales Trend - Get sales by day of week for the selected time period
       const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const periodOrders = await Order.find({
-        store: { $in: storeIds },
-        status: 'delivered',
-        createdAt: { $gte: startDate, $lte: endDate }
-      });
 
       // Initialize days with 0 sales
       const dailySales = {};

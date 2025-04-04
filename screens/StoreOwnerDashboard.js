@@ -45,16 +45,6 @@ const timeFilters = [
   { id: 'year', label: 'This Year' }
 ];
 
-const customChartTheme = {
-  axis: {
-    style: {
-      axis: { stroke: theme.border, strokeWidth: 1 },
-      tickLabels: { fill: theme.secondary, fontSize: 10 },
-      grid: { stroke: theme.border, strokeWidth: 0.5 }
-    }
-  }
-};
-
 const StoreOwnerDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -266,9 +256,6 @@ const StoreOwnerDashboard = () => {
   );
 
   const renderPeakHoursChart = () => {
-    // Filter to show only every other hour to prevent label overlap
-    const filteredHourData = dashboardData.ordersByHour.filter((_, index) => index % 2 === 0);
-
     return (
       <View style={styles.chartSection}>
         <Text style={styles.sectionTitle}>Peak Hours</Text>
