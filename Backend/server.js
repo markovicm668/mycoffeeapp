@@ -4,39 +4,98 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const SALT_ROUNDS = 10;
-const storeUtils = require('../screens/storeUtils');
-const { configureReanimatedLogger } = require('react-native-reanimated');
 require('dotenv').config();
+
+const passport = require('passport');
+const LocalStrategy = require('passport-local').Strategy;
+const JwtStrategy = require('passport-jwt').Strategy;
+const ExtractJwt = require('passport-jwt').ExtractJwt;
+const session = require('express-session');
+
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-session-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: process.env.NODE_ENV === 'production', maxAge: 24 * 60 * 60 * 1000 } // 1 day
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_EXPIRES_IN = '7d';
 
-const auth = async (req, res, next) => {
-  try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    if (!token) {
-      throw new Error('Authorization token required');
-    }
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const user = await User.findById(decoded.userId);
-    if (!user) {
-      console.log("Auth middleware: User not found for token"); // Log if user not found
-      throw new Error('User not found');
-    }
-    req.user = user;
-    req.token = token;
-    next();
-  } catch (error) {
-    console.error("Auth middleware error:", error); // Log auth errors
-    return res.status(401).json({ error: 'Please authenticate' });
-  } finally {
-  }
+const jwtOptions = {
+  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+  secretOrKey: JWT_SECRET
 };
+
+
+// Local Strategy for username/password login
+passport.use(new LocalStrategy(
+  { usernameField: 'email' }, // Use email as the username field
+  async (email, password, done) => {
+    try {
+      // Find user by email
+      const user = await User.findOne({ email: email.toLowerCase() });
+
+      if (!user) {
+        return done(null, false, { message: 'Invalid email or password' });
+      }
+
+      // Check password
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+
+      if (!isPasswordValid) {
+        return done(null, false, { message: 'Invalid email or password' });
+      }
+
+      // Return authenticated user
+      return done(null, user);
+    } catch (error) {
+      return done(error);
+    }
+  }
+));
+
+// JWT Strategy for token authentication
+passport.use(new JwtStrategy(jwtOptions, async (jwtPayload, done) => {
+  try {
+    // Find user by ID from JWT payload
+    const user = await User.findById(jwtPayload.userId);
+
+    if (!user) {
+      return done(null, false);
+    }
+
+    return done(null, user);
+  } catch (error) {
+    return done(error, false);
+  }
+}));
+
+// Serialize user for the session
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+// Deserialize user from the session
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch (error) {
+    done(error);
+  }
+});
+
+const auth = passport.authenticate('jwt', { session: false });
 
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/coffee-shop', {
   useNewUrlParser: true,
@@ -84,50 +143,6 @@ const userSchema = new mongoose.Schema({
 });
 
 const User = mongoose.model('User', userSchema);
-
-// const MenuItem = mongoose.model('MenuItem', {
-//   name: {
-//     type: String,
-//     required: true
-//   },
-//   description: {
-//     type: String,
-//     default: ''
-//   },
-//   price: {
-//     type: Number,
-//     required: true
-//   },
-//   imageUrl: {
-//     type: String,
-//     default: '' // Default empty string if no image provided
-//   },
-//   category: {
-//     type: String,
-//     default: 'coffee'
-//   },
-//   sizes: [{
-//     name: String,
-//     priceModifier: Number
-//   }],
-//   extras: [{
-//     name: String,
-//     price: Number
-//   }],
-//   isAvailable: {
-//     type: Boolean,
-//     default: true
-//   },
-//   store: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: 'Store',
-//     required: true
-//   },
-//   createdAt: {
-//     type: Date,
-//     default: Date.now
-//   }
-// });
 
 // Update MenuItem schema
 const MenuItem = mongoose.model('MenuItem', {
@@ -178,7 +193,6 @@ const MenuItem = mongoose.model('MenuItem', {
   }
 });
 
-// Update StoreCategory model
 const StoreCategory = mongoose.model('StoreCategory', {
   name: {
     type: String,
@@ -227,14 +241,6 @@ const Store = mongoose.model('Store', {
 
 Store.collection.createIndex({ location: '2dsphere' });
 
-// const StoreCategory = mongoose.model('StoreCategory', {
-//   name: { type: String, required: true },
-//   store: {
-//     type: mongoose.Schema.Types.ObjectId,
-//     ref: 'Store',
-//     required: true
-//   }
-// });
 
 const Order = mongoose.model('Order', {
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -263,7 +269,6 @@ const Order = mongoose.model('Order', {
   estimatedReadyTime: { type: Date },
   actualReadyTime: { type: Date }
 });
-
 
 // Add mongoose model for device tokens
 const UserDevice = mongoose.model('UserDevice', {
@@ -412,6 +417,7 @@ app.get('/api/stores/mine', auth, async (req, res) => {
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { email, password, name, phoneNumber, role } = req.body;
+
     // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -419,12 +425,12 @@ app.post('/api/auth/signup', async (req, res) => {
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create new user with hashed password
+    // Create new user
     const user = new User({
       email,
-      password: hashedPassword,  // Store the hashed password
+      password: hashedPassword,
       name,
       phoneNumber,
       role: role || 'user'
@@ -434,7 +440,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
     // Generate token
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, {
-      expiresIn: JWT_EXPIRES_IN
+      expiresIn: '7d'
     });
 
     res.status(201).json({
@@ -453,30 +459,22 @@ app.post('/api/auth/signup', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    // Find user - make email case insensitive
-    const user = await User.findOne({ email: email.toLowerCase() });
+app.post('/api/auth/login', (req, res, next) => {
+  passport.authenticate('local', { session: false }, (err, user, info) => {
+    if (err) {
+      return next(err);
+    }
 
     if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: info.message || 'Authentication failed' });
     }
 
-    // Check password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
-    // Generate token
+    // User authenticated, generate JWT
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, {
-      expiresIn: JWT_EXPIRES_IN
+      expiresIn: '7d'
     });
 
-    res.json({
+    return res.json({
       token,
       user: {
         id: user._id,
@@ -486,25 +484,20 @@ app.post('/api/auth/login', async (req, res) => {
         role: user.role
       }
     });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(400).json({ error: error.message });
-  }
+  })(req, res, next);
 });
 
-app.get('/api/auth/me', auth, async (req, res) => {
-  try {
-    res.json({
-      user: {
-        id: req.user._id,
-        email: req.user.email,
-        name: req.user.name,
-        phoneNumber: req.user.phoneNumber
-      }
-    });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
+app.get('/api/auth/me', auth, (req, res) => {
+  // req.user is now provided by Passport
+  res.json({
+    user: {
+      id: req.user._id,
+      email: req.user.email,
+      name: req.user.name,
+      phoneNumber: req.user.phoneNumber,
+      role: req.user.role
+    }
+  });
 });
 
 app.get('/api/stores/:id', async (req, res) => {
@@ -573,7 +566,6 @@ app.post('/api/stores', auth, async (req, res) => {
   }
 });
 
-// Update existing menu fetch endpoint to sort by position
 app.get('/api/menu', auth, async (req, res) => {
   try {
     let query = {};
@@ -1192,50 +1184,50 @@ app.get('/api/store/dashboard', auth, async (req, res) => {
         endDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
     }
 
-    // For backward compatibility with existing code
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    // Create base store filter
+    const storeFilter = { store: { $in: storeIds } };
+
+    // Create time-filtered query
+    const timeRangeFilter = {
+      ...storeFilter,
+      createdAt: { $gte: startDate, $lte: endDate }
+    };
 
     // Use try-catch for each database operation
-    let deliveredOrders, allOrders, todayAllOrders, todayDeliveredOrders, activeOrders, topSellingItems;
-    let salesTrendData, ordersByHourData, categoryBreakdownData;
+    let allTimeOrders, allTimeDeliveredOrders, periodOrders, periodDeliveredOrders,
+      activeOrders, topSellingItems, salesTrendData, ordersByHourData, categoryBreakdownData;
 
     try {
-      // Get all delivered orders (for revenue)
-      deliveredOrders = await Order.find({
-        store: { $in: storeIds },
+      // ALL-TIME METRICS (not filtered by time)
+      allTimeOrders = await Order.find(storeFilter);
+      allTimeDeliveredOrders = await Order.find({
+        ...storeFilter,
         status: 'delivered'
       });
 
-      // Get all orders (for counts)
-      allOrders = await Order.find({
-        store: { $in: storeIds }
+      // TIME-FILTERED METRICS
+      periodOrders = await Order.find(timeRangeFilter);
+      periodDeliveredOrders = await Order.find({
+        ...timeRangeFilter,
+        status: 'delivered'
       });
 
-      // Today's orders
-      todayAllOrders = await Order.find({
-        store: { $in: storeIds },
-        createdAt: { $gte: startOfDay, $lt: endOfDay }
-      });
-
-      // Today's revenue
-      todayDeliveredOrders = await Order.find({
-        store: { $in: storeIds },
-        status: 'delivered',
-        createdAt: { $gte: startOfDay, $lt: endOfDay }
-      });
-
-      // Active orders
+      // Get active orders (current only, not time-filtered)
       activeOrders = await Order.find({
-        store: { $in: storeIds },
+        ...storeFilter,
         status: { $in: ['pending', 'preparing', 'ready'] }
       })
         .sort({ createdAt: -1 })
         .limit(5);
 
-      // Top selling items
+      // Top selling items for the selected time period
       topSellingItems = await Order.aggregate([
-        { $match: { store: { $in: storeIds }, status: 'delivered' } },
+        {
+          $match: {
+            ...timeRangeFilter,
+            status: 'delivered'
+          }
+        },
         { $unwind: '$items' },
         {
           $group: {
@@ -1248,22 +1240,15 @@ app.get('/api/store/dashboard', auth, async (req, res) => {
         { $limit: 5 }
       ]);
 
-      // CHART DATA GENERATION
-
-      // 1. Sales Trend - Get sales by day of week for the selected time period
+      // CHART DATA GENERATION - Day of week trend
       const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const periodOrders = await Order.find({
-        store: { $in: storeIds },
-        status: 'delivered',
-        createdAt: { $gte: startDate, $lte: endDate }
-      });
 
       // Initialize days with 0 sales
       const dailySales = {};
       daysOfWeek.forEach(day => { dailySales[day] = 0 });
 
       // Sum up sales by day of week
-      periodOrders.forEach(order => {
+      periodDeliveredOrders.forEach(order => {
         const dayOfWeek = daysOfWeek[new Date(order.createdAt).getDay()];
         dailySales[dayOfWeek] += order.totalAmount || 0;
       });
@@ -1274,36 +1259,48 @@ app.get('/api/store/dashboard', auth, async (req, res) => {
         y: Math.round(dailySales[day])
       }));
 
-      // 2. Orders By Hour - Get order distribution by hour of day
-      const hourCounts = {};
-      // Initialize hours with 0 orders
-      for (let i = 0; i < 24; i++) {
-        const hourLabel = i < 12 ? `${i || 12}AM` : `${i === 12 ? 12 : i - 12}PM`;
-        hourCounts[hourLabel] = 0;
-      }
-
-      // Count orders by hour
-      periodOrders.forEach(order => {
-        const hour = new Date(order.createdAt).getHours();
-        const hourLabel = hour < 12 ? `${hour || 12}AM` : `${hour === 12 ? 12 : hour - 12}PM`;
-        hourCounts[hourLabel]++;
-      });
-
-      // Format for chart - only include business hours (8AM-10PM)
       const businessHours = [
         '8AM', '9AM', '10AM', '11AM', '12PM',
         '1PM', '2PM', '3PM', '4PM', '5PM',
         '6PM', '7PM', '8PM', '9PM', '10PM'
       ];
 
+      // Initialize hour counts
+      const hourCounts = {};
+      businessHours.forEach(hour => {
+        hourCounts[hour] = 0;
+      });
+
+      // Count orders by hour
+      periodOrders.forEach(order => {
+        const orderDate = new Date(order.createdAt);
+        const hour = orderDate.getHours();
+
+        // Only count orders during business hours (8AM-10PM)
+        if (hour >= 8 && hour <= 22) {
+          let hourLabel;
+          if (hour < 12) {
+            hourLabel = `${hour}AM`; // 8AM, 9AM, etc.
+          } else if (hour === 12) {
+            hourLabel = '12PM'; // Noon
+          } else {
+            hourLabel = `${hour - 12}PM`; // 1PM, 2PM, etc.
+          }
+
+          if (businessHours.includes(hourLabel)) {
+            hourCounts[hourLabel]++;
+          }
+        }
+      });
+
+      // Format for chart
       ordersByHourData = businessHours.map(hour => ({
         x: hour,
         y: hourCounts[hour] || 0
       }));
 
-      // 3. Category Breakdown - Get sales by menu item category
-      // First, get all menu items to map them to categories
-      const menuItems = await MenuItem.find({ store: { $in: storeIds } });
+      // Category Breakdown - Get sales by menu item category for the time period
+      const menuItems = await MenuItem.find(storeFilter);
       const menuItemMap = {};
       menuItems.forEach(item => {
         menuItemMap[item._id.toString()] = item.category || 'Uncategorized';
@@ -1313,8 +1310,8 @@ app.get('/api/store/dashboard', auth, async (req, res) => {
       const categoryCounts = {};
       let totalItems = 0;
 
-      // Process all delivered order items
-      for (const order of periodOrders) {
+      // Process order items for the time period
+      for (const order of periodDeliveredOrders) {
         for (const item of order.items) {
           // Try to find category by menuItemId
           let category = 'Other';
@@ -1322,60 +1319,66 @@ app.get('/api/store/dashboard', auth, async (req, res) => {
             category = menuItemMap[item.menuItemId.toString()] || 'Other';
           }
 
-          // Count items
+          // Add the actual quantity to the category count
           categoryCounts[category] = (categoryCounts[category] || 0) + (item.quantity || 1);
-          totalItems += (item.quantity || 1);
         }
       }
 
-      // Convert to percentages for pie chart
+      // Format for pie chart - Use actual counts instead of percentages
       categoryBreakdownData = Object.keys(categoryCounts).map(category => ({
         x: category,
-        y: Math.round((categoryCounts[category] / Math.max(1, totalItems)) * 100)
+        y: categoryCounts[category], // Actual count, not percentage
+        count: categoryCounts[category] // Include raw count for label
       }));
 
       // Sort by percentage descending
       categoryBreakdownData.sort((a, b) => b.y - a.y);
 
-      // Limit to top 5 categories and group the rest as "Other"
       if (categoryBreakdownData.length > 5) {
         const topCategories = categoryBreakdownData.slice(0, 4);
         const otherCategories = categoryBreakdownData.slice(4);
-        const otherPercentage = otherCategories.reduce((sum, item) => sum + item.y, 0);
+        const otherCount = otherCategories.reduce((sum, item) => sum + item.y, 0);
 
         categoryBreakdownData = [
           ...topCategories,
-          { x: 'Other', y: otherPercentage }
+          { x: 'Other', y: otherCount, count: otherCount }
         ];
       }
 
     } catch (dbError) {
       console.error('Database query error:', dbError);
-      return res.status(500).json({ error: 'Database query failed' });
+      return res.status(500).json({ error: 'Database query failed', details: dbError.message });
     }
 
-    // Calculate stats
-    const todayStats = {
-      orders: todayAllOrders.length,
-      revenue: todayDeliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0)
+    // Calculate period stats based on the time-filtered data
+    const periodStats = {
+      orders: periodOrders.length,
+      revenue: periodDeliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0),
     };
 
-    const totalOrders = allOrders.length;
-    const totalRevenue = deliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-    const averageOrderValue = deliveredOrders.length > 0 ? totalRevenue / deliveredOrders.length : 0;
-    const completedOrders = deliveredOrders.length;
+    // Calculate all-time stats
+    const allTimeStats = {
+      totalOrders: allTimeOrders.length,
+      totalRevenue: allTimeDeliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0),
+      averageOrderValue: allTimeDeliveredOrders.length > 0
+        ? allTimeDeliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0) / allTimeDeliveredOrders.length
+        : 0,
+      completedOrders: allTimeDeliveredOrders.length
+    };
 
     // Format and send response
     res.json({
-      totalOrders,
+      // All-time metrics for "All Time Performance" section
+      totalOrders: allTimeStats.totalOrders,
       dailyStats: {
-        totalRevenue,
-        averageOrderValue,
-        completedOrders,
+        totalRevenue: allTimeStats.totalRevenue,
+        averageOrderValue: allTimeStats.averageOrderValue,
+        completedOrders: allTimeStats.completedOrders,
       },
+      // Time-filtered metrics for "Today's Stats" section
       today: {
-        orders: todayStats.orders,
-        revenue: todayStats.revenue
+        orders: periodStats.orders,
+        revenue: periodStats.revenue
       },
       activeOrders,
       topSellingItems: topSellingItems.map(item => ({
@@ -1383,14 +1386,14 @@ app.get('/api/store/dashboard', auth, async (req, res) => {
         count: item.count,
         revenue: item.revenue
       })),
-      // Add chart data
+      // Chart data (time-filtered)
       salesTrend: salesTrendData,
       ordersByHour: ordersByHourData,
       categoryBreakdown: categoryBreakdownData
     });
   } catch (error) {
     console.error('Dashboard error:', error);
-    res.status(500).json({ error: 'Failed to fetch dashboard data' });
+    res.status(500).json({ error: 'Failed to fetch dashboard data', details: error.message });
   }
 });
 
