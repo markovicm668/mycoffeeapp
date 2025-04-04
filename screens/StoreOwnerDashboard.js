@@ -259,47 +259,48 @@ const StoreOwnerDashboard = () => {
     return (
       <View style={styles.chartSection}>
         <Text style={styles.sectionTitle}>Peak Hours</Text>
-        <BarChart
-          data={{
-            labels: filteredHourData.map(item => item.x),
-            datasets: [{
-              data: dashboardData.ordersByHour.map(item => item.y)
-            }]
-          }}
-          width={width - 60}
-          height={220}
-          chartConfig={{
-            backgroundColor: theme.white,
-            backgroundGradientFrom: theme.white,
-            backgroundGradientTo: theme.white,
-            decimalPlaces: 0,
-            color: () => theme.accent,
-            labelColor: () => theme.secondary,
-            barPercentage: 0.6,
-            propsForLabels: {
-              fontSize: 10,
-              rotation: -45,
-              originX: 5,
-              y: 5
-            },
-            style: {
-              borderRadius: 16
-            },
-            formatYLabel: (value) => Math.round(value).toString(),
-          }}
-          style={{
-            marginVertical: 8,
-            borderRadius: 8,
-            paddingRight: 0,
-          }}
-          fromZero={true}
-          showValuesOnTopOfBars={true}
-          withInnerLines={true}
-          segments={5}
-          verticalLabelRotation={-45}
-          xLabelsOffset={-10}
-          yLabelsOffset={0}
-        />
+
+        <View style={styles.chartContainer}>
+          <BarChart
+            data={{
+              // Show every other label to prevent crowding
+              labels: dashboardData.ordersByHour.map((item, index) =>
+                index % 2 === 0 ? item.x : ''
+              ),
+              datasets: [{
+                data: dashboardData.ordersByHour.map(item => item.y)
+              }]
+            }}
+            width={width - 40}
+            height={220}
+            chartConfig={{
+              backgroundColor: theme.white,
+              backgroundGradientFrom: theme.white,
+              backgroundGradientTo: theme.white,
+              decimalPlaces: 0,
+              color: () => theme.accent,
+              labelColor: () => theme.secondary,
+              barPercentage: 0.7,
+              propsForLabels: {
+                fontSize: 10
+              },
+              formatYLabel: (value) => Math.round(value).toString(),
+            }}
+            style={{
+              marginVertical: 8,
+              borderRadius: 8,
+              marginLeft: -59, // Subtle shift to improve positioning
+            }}
+            fromZero={true}
+            showValuesOnTopOfBars={true}
+            withInnerLines={true}
+            segments={5}
+          />
+        </View>
+
+        <Text style={styles.chartCaption}>
+          Orders distribution throughout business hours (8AM-10PM)
+        </Text>
       </View>
     );
   };
@@ -309,16 +310,16 @@ const StoreOwnerDashboard = () => {
       if (!categoryColorsRef.current[item.x]) {
         categoryColorsRef.current[item.x] = generateCoffeeColor();
       }
-    });  
+    });
 
     return (
       <View style={styles.chartSection}>
         <Text style={styles.sectionTitle}>Product Categories</Text>
         <PieChart
           data={dashboardData.categoryBreakdown.map(item => ({
-            name: item.x,
-            value: item.y,
-            color: categoryColorsRef.current[item.x], // Use stored random color
+            name: `${item.x}`, // Add count to the name in legend
+            value: item.y, // Use actual count
+            color: categoryColorsRef.current[item.x],
             legendFontColor: theme.secondary,
             legendFontSize: 12
           }))}
@@ -333,7 +334,7 @@ const StoreOwnerDashboard = () => {
           accessor="value"
           backgroundColor="transparent"
           paddingLeft="15"
-          absolute
+          absolute // Use absolute values instead of calculating percentages
         />
       </View>
     );
@@ -344,9 +345,9 @@ const StoreOwnerDashboard = () => {
     const hue = 25 + Math.floor(Math.random() * 15); // Brown hues (25-40)
     const saturation = 60 + Math.floor(Math.random() * 30); // Medium-high saturation (60-90%)
     const lightness = 20 + Math.floor(Math.random() * 40); // Medium darkness (20-60%)
-    
+
     return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-  };  
+  };
 
   const renderTopSellingItems = () => (
     <View style={styles.chartSection}>
@@ -879,6 +880,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     height: 250,
     marginVertical: 10,
+    width: '100%',
+    overflow: 'hidden',
   },
   pieChartContainer: {
     alignItems: 'center',
@@ -918,6 +921,12 @@ const styles = StyleSheet.create({
     color: theme.secondary,
     marginBottom: 16,
   },
+  chartCaption: {
+    fontSize: 12,
+    color: theme.secondary,
+    textAlign: 'center',
+    marginTop: 4
+  }
 });
 
 export default StoreOwnerDashboard;
