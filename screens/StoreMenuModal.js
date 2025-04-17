@@ -54,59 +54,58 @@ export default function StoreMenuModal({ navigation, route }) {
     }
   }, [store]);
 
-  // In StoreMenuModal.js, update the useEffect that processes menuItems
-useEffect(() => {
-  if (menuItems.length > 0) {
-    // Group menu items by category and create sections
-    const categoriesMap = {};
-    menuItems.forEach(item => {
-      const category = item.category || 'Uncategorized';
-      if (!categoriesMap[category]) {
-        categoriesMap[category] = [];
-      }
-      categoriesMap[category].push(item);
-    });
-
-    // Convert to sections array format
-    const sections = Object.keys(categoriesMap).map(category => {
-      // Sort items within each category by position
-      const sortedItems = categoriesMap[category].sort((a, b) => {
-        // First sort by position if available
-        if (a.position !== undefined && b.position !== undefined) {
-          return a.position - b.position;
+  useEffect(() => {
+    if (menuItems.length > 0) {
+      // Group menu items by category and create sections
+      const categoriesMap = {};
+      menuItems.forEach(item => {
+        const category = item.category || 'Uncategorized';
+        if (!categoriesMap[category]) {
+          categoriesMap[category] = [];
         }
-        // Fall back to name sorting
-        return a.name.localeCompare(b.name);
+        categoriesMap[category].push(item);
       });
-      
-      return {
-        title: category.charAt(0).toUpperCase() + category.slice(1),
-        data: sortedItems,
-        key: category,
-        // Store position for sorting categories (get from first item)
-        position: sortedItems[0]?.position !== undefined 
-          ? sortedItems[0].position 
-          : 9999
-      };
-    });
 
-    // Sort sections by position instead of alphabetically
-    sections.sort((a, b) => {
-      // Get category positions from the actual category objects
-      const posA = a.position !== undefined ? a.position : 9999;
-      const posB = b.position !== undefined ? b.position : 9999;
-      return posA - posB;
-    });
+      // Convert to sections array format
+      const sections = Object.keys(categoriesMap).map(category => {
+        // Sort items within each category by position
+        const sortedItems = categoriesMap[category].sort((a, b) => {
+          // First sort by position if available
+          if (a.position !== undefined && b.position !== undefined) {
+            return a.position - b.position;
+          }
+          // Fall back to name sorting
+          return a.name.localeCompare(b.name);
+        });
 
-    setMenuSections(sections);
-    setCategories(sections.map(section => section.key));
+        return {
+          title: category.charAt(0).toUpperCase() + category.slice(1),
+          data: sortedItems,
+          key: category,
+          // Store position for sorting categories (get from first item)
+          position: sortedItems[0]?.position !== undefined
+            ? sortedItems[0].position
+            : 9999
+        };
+      });
 
-    // Set the first category as selected by default
-    if (sections.length > 0 && !selectedCategory) {
-      setSelectedCategory(sections[0].key);
+      // Sort sections by position instead of alphabetically
+      sections.sort((a, b) => {
+        // Get category positions from the actual category objects
+        const posA = a.position !== undefined ? a.position : 9999;
+        const posB = b.position !== undefined ? b.position : 9999;
+        return posA - posB;
+      });
+
+      setMenuSections(sections);
+      setCategories(sections.map(section => section.key));
+
+      // Set the first category as selected by default
+      if (sections.length > 0 && !selectedCategory) {
+        setSelectedCategory(sections[0].key);
+      }
     }
-  }
-}, [menuItems]);
+  }, [menuItems]);
 
   useEffect(() => {
     const getUserLocation = async () => {
@@ -371,25 +370,11 @@ useEffect(() => {
           <View style={styles.storeDetailsContainer}>
             <Text style={styles.storeAddress}>{store?.address}</Text>
 
-            <View style={styles.storeMetaInfo}>
-              {userLocation && (
-                <Text style={styles.distanceText}>
-                  {formatDistance(calculateDistance(userLocation, store?.location))}
-                </Text>
-              )}
-
-              {storeStatus.isOpen && getClosingTime(store) && (
-                <Text style={styles.openUntilText}>
-                  • Open until {getClosingTime(store)}
-                </Text>
-              )}
-
-              {!storeStatus.isOpen && storeStatus.nextOpeningTime && (
-                <Text style={styles.closedText}>
-                  • Opens {storeStatus.nextOpeningTime.isToday ? 'today' : 'tomorrow'} at {storeStatus.nextOpeningTime.time}
-                </Text>
-              )}
-            </View>
+            {userLocation && (
+              <Text style={styles.distanceText}>
+                {formatDistance(calculateDistance(userLocation, store?.location))}
+              </Text>
+            )}
           </View>
 
           <View style={styles.categoryList}>
@@ -459,7 +444,7 @@ useEffect(() => {
         {cartItems.length > 0 && (
           <View style={styles.viewOrderButton}>
             <TouchableOpacity
-              style={styles.orderButton}  
+              style={styles.orderButton}
               onPress={handleViewOrder}
             >
               <View style={styles.orderButtonContent}>
@@ -572,32 +557,11 @@ const styles = StyleSheet.create({
   },
   storeInfo: {
     backgroundColor: theme.white,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 5,
+    paddingTop: 10,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.05)',
-  },
-  storeHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusText: {
-    color: theme.white,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  nextOpenText: {
-    fontSize: 14,
-    color: theme.secondary,
-    marginTop: 4,
   },
   categoryButton: {
     paddingHorizontal: 16,
@@ -729,17 +693,16 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   storeDetailsContainer: {
-    marginBottom: 12,
+    marginBottom: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 16,
   },
   storeAddress: {
     fontSize: 15,
     color: theme.secondary,
     marginBottom: 4,
-  },
-  storeMetaInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
   },
   distanceText: {
     fontSize: 14,
